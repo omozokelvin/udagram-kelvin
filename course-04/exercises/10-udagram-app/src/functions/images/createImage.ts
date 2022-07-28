@@ -24,23 +24,23 @@ const groupExists = async (groupId: string) => {
 const saveImage = async (groupId, imageId, event: Omit<APIGatewayProxyEvent, "body"> & { body: { title: string }; }) => {
   const timestamp = new Date().toISOString();
 
-  const newImage = event.body;
+  const parsedBody = event.body;
 
   const newItem = {
     groupId,
     timestamp,
     imageId,
-    ...newImage
+    ...parsedBody
   }
 
   console.log('storing new item: ', newItem);
 
   await docClient.put({
     TableName: imagesTable,
-    Item: newImage
+    Item: newItem
   }).promise();
 
-  return newImage;
+  return newItem;
 }
 
 const createImage: ValidatedEventAPIGatewayProxyEvent<typeof schema> = async (event): Promise<APIGatewayProxyResult> => {
