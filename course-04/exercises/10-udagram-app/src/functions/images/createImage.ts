@@ -1,6 +1,6 @@
 import { formatJSONResponse, ValidatedEventAPIGatewayProxyEvent } from '@libs/api-gateway';
 import { middyfy } from '@libs/lambda';
-import { APIGatewayProxyEvent, APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda';
+import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda';
 import * as AWS from 'aws-sdk';
 import * as uuid from 'uuid';
 import schema from './schema/create-image-schema';
@@ -9,7 +9,6 @@ const docClient = new AWS.DynamoDB.DocumentClient();
 
 const groupsTable = process.env.GROUPS_TABLE;
 const imagesTable = process.env.IMAGES_TABLE;
-const imageIdIndex = process.env.IMAGE_ID_INDEX;
 
 const groupExists = async (groupId: string) => {
   const result = await docClient.get({

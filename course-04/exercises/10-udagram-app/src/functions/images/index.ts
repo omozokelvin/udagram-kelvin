@@ -27,10 +27,6 @@ export const createImage =  {
           schemas: {
             'application/json': createImageSchema,
           },
-        },
-        documentation: {
-          summary: 'Create an image',
-          description: 'Create a new image',
         }
       },
     },

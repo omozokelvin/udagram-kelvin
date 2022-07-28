@@ -1,2 +1,2 @@
 export { getGroups, createGroup, getImages } from './groups';
-export { getImage } from './images';
+export { getImage, createImage } from './images';

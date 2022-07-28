@@ -1,7 +1,7 @@
 import type { AWS } from '@serverless/typescript';
 
 import { getGroups, createGroup, getImages } from '@functions/groups';
-import { getImage } from '@functions/images';
+import { getImage, createImage } from '@functions/images';
 
 
 const serverlessConfiguration: AWS = {
@@ -52,7 +52,7 @@ const serverlessConfiguration: AWS = {
     ]
   },
   // import the function via paths
-  functions: { getGroups, createGroup, getImages, getImage },
+  functions: { getGroups, createGroup, getImages, getImage, createImage },
   package: { individually: true },
   custom: {
     esbuild: {
