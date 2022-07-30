@@ -5,8 +5,8 @@ import { createGroup } from '../api/groups-api'
 interface CreateGroupProps {}
 
 interface CreateGroupState {
-  name: string
-  description: string
+  name: string;
+  description: string;
   uploadingGroup: boolean
 }
 

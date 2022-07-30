@@ -1,5 +1,5 @@
 {
-  "name": "service-10-udagram-app",
+  "name": "just-test-post",
   "version": "1.0.0",
   "description": "Serverless aws-nodejs-typescript template",
   "main": "serverless.ts",
@@ -11,15 +11,12 @@
   },
   "dependencies": {
     "@middy/core": "^2.5.3",
-    "@middy/http-json-body-parser": "^2.5.3",
-    "source-map-support": "^0.5.21",
-    "uuid": "^8.3.2"
+    "@middy/http-json-body-parser": "^2.5.3"
   },
   "devDependencies": {
     "@serverless/typescript": "^3.0.0",
     "@types/aws-lambda": "^8.10.71",
     "@types/node": "^14.14.25",
-    "aws-sdk": "^2.1184.0",
     "esbuild": "^0.14.11",
     "json-schema-to-ts": "^1.5.0",
     "serverless": "^3.0.0",

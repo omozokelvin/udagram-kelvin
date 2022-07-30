@@ -7,8 +7,14 @@ import schema from './schema/create-image-schema';
 
 const docClient = new AWS.DynamoDB.DocumentClient();
 
+const s3 = new AWS.S3({
+  signatureVersion: 'v4'
+})
+
 const groupsTable = process.env.GROUPS_TABLE;
 const imagesTable = process.env.IMAGES_TABLE;
+const bucketName = process.env.IMAGES_S3_BUCKET;
+const urlExpiration = process.env.SIGNED_URL_EXPIRATION;
 
 const groupExists = async (groupId: string) => {
   const result = await docClient.get({
@@ -30,7 +36,8 @@ const saveImage = async (groupId, imageId, event: Omit<APIGatewayProxyEvent, "bo
     groupId,
     timestamp,
     imageId,
-    ...parsedBody
+    ...parsedBody,
+    imageUrl: `https://${bucketName}.s3.amazonaws.com/${imageId}`
   }
 
   console.log('storing new item: ', newItem);
@@ -41,6 +48,15 @@ const saveImage = async (groupId, imageId, event: Omit<APIGatewayProxyEvent, "bo
   }).promise();
 
   return newItem;
+}
+
+
+const getUploadUrl = (imageId:string) => {
+  return s3.getSignedUrl('putObject', {
+    Bucket: bucketName,
+    Key: imageId,
+    Expires: parseInt(urlExpiration)
+  })
 }
 
 const createImage: ValidatedEventAPIGatewayProxyEvent<typeof schema> = async (event): Promise<APIGatewayProxyResult> => {
@@ -60,8 +76,11 @@ const createImage: ValidatedEventAPIGatewayProxyEvent<typeof schema> = async (ev
 
   const newItem = await saveImage(groupId, imageId, event);
 
+  const uploadUrl = getUploadUrl(imageId)
+
   return formatJSONResponse({
-    newItem
+    newItem,
+    uploadUrl
   });
 };
 
