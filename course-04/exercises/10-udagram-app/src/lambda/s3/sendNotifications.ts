@@ -1,5 +1,5 @@
 import { middyfy } from '@libs/lambda';
-import { S3Event, S3Handler } from 'aws-lambda';
+import { S3Event, SNSEvent, SNSHandler } from 'aws-lambda';
 import 'source-map-support/register';
 import * as AWS from 'aws-sdk';
 
@@ -46,8 +46,7 @@ const sendMessageToClient = async (connectionId: string, payload: any) => {
     }
   }
 };
-
-const sendUploadNotifications: S3Handler = async (event: S3Event) => {
+async function processS3events(event: S3Event) {
   for (const record of event.Records) {
     const key = record.s3.object.key;
     console.log(`Processing S3 event for key: ${key}`);
@@ -67,6 +66,20 @@ const sendUploadNotifications: S3Handler = async (event: S3Event) => {
       await sendMessageToClient(connectionId, JSON.stringify(payload));
     }
   }
+}
+
+const handler: SNSHandler = async (event: SNSEvent) => {
+  console.log('Processing SNS event: ', JSON.stringify(event));
+
+  for (const snsRecord of event.Records) {
+    const s3EventStr = snsRecord.Sns.Message;
+
+    const s3Event = JSON.parse(s3EventStr);
+
+    console.log('Processing S3 event: ', JSON.stringify(s3Event));
+
+    await processS3events(s3Event);
+  }
 };
 
-export const main = middyfy(sendUploadNotifications);
+export const main = middyfy(handler);

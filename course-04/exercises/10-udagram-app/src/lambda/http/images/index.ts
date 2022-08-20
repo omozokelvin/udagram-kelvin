@@ -1,21 +1,20 @@
-
 import { handlerPath } from '@libs/handler-resolver';
 import createImageSchema from './schema/create-image-schema';
 
-export const getImage =  {
+export const getImage = {
   handler: `${handlerPath(__dirname)}/getImage.main`,
   events: [
     {
       http: {
         method: 'get',
         path: 'images/{imageId}',
-        cors: true
+        cors: true,
       },
     },
   ],
 };
 
-export const createImage =  {
+export const createImage = {
   handler: `${handlerPath(__dirname)}/createImage.main`,
   events: [
     {
@@ -23,11 +22,12 @@ export const createImage =  {
         method: 'post',
         path: 'groups/{groupId}/images',
         cors: true,
+        authorizer: 'Auth',
         request: {
           schemas: {
             'application/json': createImageSchema,
           },
-        }
+        },
       },
     },
   ],

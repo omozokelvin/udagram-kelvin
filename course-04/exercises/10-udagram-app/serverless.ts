@@ -2,8 +2,10 @@ import type { AWS } from '@serverless/typescript';
 
 import { getGroups, createGroup, getImages } from 'src/lambda/http/groups';
 import { getImage, createImage } from 'src/lambda/http/images';
-import { sendUploadNotifications } from 'src/lambda/s3';
+import { ResizeImage, sendUploadNotifications } from 'src/lambda/s3';
 import { ConnectHandler, DisconnectHandler } from 'src/lambda/websocket';
+import { SyncWithElasticsearch } from 'src/lambda/dynamoDb';
+import { Auth } from 'src/lambda/auth';
 
 const serverlessConfiguration: AWS = {
   service: 'serverless-udagram-app',
@@ -24,12 +26,13 @@ const serverlessConfiguration: AWS = {
       GROUPS_TABLE: 'Groups-${self:provider.stage}',
       IMAGES_TABLE: 'Images-${self:provider.stage}',
       IMAGE_ID_INDEX: 'ImageIdIndex',
-      IMAGES_S3_BUCKET: 'serverless-903444936-bucket-${self:provider.stage}',
+      IMAGES_S3_BUCKET: 'serverless-34444499343267-bucket-${self:provider.stage}',
       SIGNED_URL_EXPIRATION: '300',
       CONNECTIONS_TABLE: 'Connections-${self:provider.stage}',
-      API_ID: {
-        Ref: 'WebsocketsApi',
-      },
+      REGION: '${self:provider.stage}',
+      THUMBNAILS_S3_BUCKET: 'serverless-34444499343267-thumbnails-${self:provider.stage}',
+      AUTH_0_SECRET_ID: 'Auth0Secret-${self:provider.stage}',
+      AUTH_0_SECRET_FIELD: 'auth0Secret',
     },
     iamRoleStatements: [
       {
@@ -55,6 +58,11 @@ const serverlessConfiguration: AWS = {
       },
       {
         Effect: 'Allow',
+        Action: ['s3:PutObject'],
+        Resource: 'arn:aws:s3:::${self:provider.environment.THUMBNAILS_S3_BUCKET}/*',
+      },
+      {
+        Effect: 'Allow',
         Action: ['dynamodb:Scan', 'dynamodb:PutItem', 'dynamodb:DeleteItem'],
         Resource: 'arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.CONNECTIONS_TABLE}',
       },
@@ -62,6 +70,35 @@ const serverlessConfiguration: AWS = {
         Effect: 'Allow',
         Action: ['execute-api:Invoke'],
         Resource: 'arn:aws:execute-api:*:*:**/@connections/*',
+      },
+      {
+        Effect: 'Allow',
+        Action: ['es:ESHttpPut', 'es:ESHttpGet'],
+        Resource: {
+          'Fn::Join': [
+            '/',
+            [
+              {
+                'Fn::GetAtt': ['ImagesSearch', 'DomainArn'],
+              },
+              '*',
+            ],
+          ],
+        },
+      },
+      {
+        Effect: 'Allow',
+        Action: ['secretsmanager:GetSecretValue'],
+        Resource: {
+          Ref: 'Auth0Secret',
+        },
+      },
+      {
+        Effect: 'Allow',
+        Action: ['kms:Decrypt'],
+        Resource: {
+          'Fn::GetAtt': ['KMSKey', 'Arn'],
+        },
       },
     ],
   },
@@ -75,6 +112,9 @@ const serverlessConfiguration: AWS = {
     sendUploadNotifications,
     ConnectHandler,
     DisconnectHandler,
+    SyncWithElasticsearch,
+    ResizeImage,
+    Auth,
   },
   package: { individually: true },
   custom: {
@@ -88,9 +128,34 @@ const serverlessConfiguration: AWS = {
       platform: 'node',
       concurrency: 10,
     },
+    topicName: 'imagesTopic-${self:provider.stage}',
+    documentation: {
+      api: {
+        info: {
+          version: '1.0.0',
+          title: 'Udagram API',
+          description: 'Serverless application for images sharing',
+        },
+      },
+    },
   },
   resources: {
     Resources: {
+      GatewayResponseDefault4XX: {
+        Type: 'AWS::ApiGateway::GatewayResponse',
+        Properties: {
+          ResponseParameters: {
+            'gatewayresponse.header.Access-Control-Allow-Origin': "'*'",
+            'gatewayresponse.header.Access-Control-Allow-Headers':
+              "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'",
+            'gatewayresponse.header.Access-Control-Allow-Methods': "'OPTIONS,GET,POST'",
+          },
+          ResponseType: 'DEFAULT_4XX',
+          RestApiId: {
+            Ref: 'ApiGatewayRestApi',
+          },
+        },
+      },
       GroupsDynamoDBTable: {
         Type: 'AWS::DynamoDB::Table',
         Properties: {
@@ -122,6 +187,9 @@ const serverlessConfiguration: AWS = {
             },
           ],
           BillingMode: 'PAY_PER_REQUEST',
+          StreamSpecification: {
+            StreamViewType: 'NEW_IMAGE',
+          },
           TableName: '${self:provider.environment.IMAGES_TABLE}',
         },
       },
@@ -134,19 +202,68 @@ const serverlessConfiguration: AWS = {
           TableName: '${self:provider.environment.CONNECTIONS_TABLE}',
         },
       },
-      AttachmentsBucket: {
-        Type: 'AWS::S3::Bucket',
+
+      ImagesTopic: {
+        Type: 'AWS::SNS::Topic',
         Properties: {
-          BucketName: '${self:provider.environment.IMAGES_S3_BUCKET}',
-          NotificationConfiguration: {
-            LambdaConfigurations: [
+          DisplayName: 'Image bucket topic',
+          TopicName: '${self:custom.topicName}',
+        },
+      },
+      SNSTopicPolicy: {
+        Type: 'AWS::SNS::TopicPolicy',
+        DependsOn: ['ImagesTopic'],
+        Properties: {
+          PolicyDocument: {
+            Version: '2012-10-17',
+            Statement: [
               {
-                Event: 's3:ObjectCreated:*',
-                Function: {
-                  'Fn::GetAtt': ['SendUploadNotificationsLambdaFunction', 'Arn'],
+                Effect: 'Allow',
+                Principal: {
+                  AWS: '*',
+                },
+                Action: 'sns:Publish',
+                Resource: {
+                  Ref: 'ImagesTopic',
+                },
+                Condition: {
+                  ArnLike: {
+                    'AWS:SourceArn': 'arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}',
+                  },
                 },
               },
             ],
+          },
+          Topics: [
+            {
+              Ref: 'ImagesTopic',
+            },
+          ],
+        },
+      },
+      AttachmentsBucket: {
+        Type: 'AWS::S3::Bucket',
+        // DependsOn: ['SNSTopicPolicy'],
+        Properties: {
+          AccessControl: 'BucketOwnerFullControl',
+          BucketName: '${self:provider.environment.IMAGES_S3_BUCKET}',
+          NotificationConfiguration: {
+            // LambdaConfigurations: [
+            //   {
+            //     Event: 's3:ObjectCreated:*',
+            //     Function: {
+            //       'Fn::GetAtt': ['SendUploadNotificationsLambdaFunction', 'Arn'],
+            //     },
+            //   },
+            // ],
+            // TopicConfigurations: [
+            //   {
+            //     Topic: {
+            //       Ref: 'ImagesTopic',
+            //     },
+            //     Event: 's3:ObjectCreated:Put',
+            //   },
+            // ],
           },
           CorsConfiguration: {
             CorsRules: [
@@ -160,18 +277,19 @@ const serverlessConfiguration: AWS = {
           },
         },
       },
-      SendUploadNotificationsPermission: {
-        Type: 'AWS::Lambda::Permission',
-        Properties: {
-          FunctionName: {
-            Ref: 'SendUploadNotificationsLambdaFunction',
-          },
-          Principal: 's3.amazonaws.com',
-          Action: 'lambda:InvokeFunction',
-          SourceAccount: { Ref: 'AWS::AccountId' },
-          SourceArn: 'arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}',
-        },
-      },
+
+      // SendUploadNotificationsPermission: {
+      //   Type: 'AWS::Lambda::Permission',
+      //   Properties: {
+      //     FunctionName: {
+      //       Ref: 'SendUploadNotificationsLambdaFunction',
+      //     },
+      //     Principal: 's3.amazonaws.com',
+      //     Action: 'lambda:InvokeFunction',
+      //     SourceAccount: { Ref: 'AWS::AccountId' },
+      //     SourceArn: 'arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}',
+      //   },
+      // },
       BucketPolicy: {
         Type: 'AWS::S3::BucketPolicy',
         Properties: {
@@ -190,6 +308,105 @@ const serverlessConfiguration: AWS = {
           },
           Bucket: {
             Ref: 'AttachmentsBucket',
+          },
+        },
+      },
+      ThumbnailsBucket: {
+        Type: 'AWS::S3::Bucket',
+        Properties: {
+          AccessControl: 'BucketOwnerFullControl',
+          BucketName: '${self:provider.environment.THUMBNAILS_S3_BUCKET}',
+          CorsConfiguration: {
+            CorsRules: [
+              {
+                AllowedOrigins: ['*'],
+                AllowedHeaders: ['*'],
+                AllowedMethods: ['GET', 'PUT', 'DELETE', 'POST', 'HEAD'],
+                MaxAge: 3000,
+              },
+            ],
+          },
+        },
+      },
+      ImagesSearch: {
+        Type: 'AWS::Elasticsearch::Domain',
+        Properties: {
+          ElasticsearchVersion: '7.10',
+          DomainName: 'images-search-${self:provider.stage}',
+          ElasticsearchClusterConfig: {
+            DedicatedMasterEnabled: false,
+            InstanceCount: 1,
+            ZoneAwarenessEnabled: false,
+            InstanceType: 't2.small.elasticsearch',
+          },
+          EBSOptions: {
+            EBSEnabled: true,
+            Iops: 0,
+            VolumeSize: 10,
+            VolumeType: 'gp2',
+          },
+
+          AccessPolicies: {
+            Version: '2012-10-17',
+            Statement: [
+              {
+                Effect: 'Allow',
+                Principal: {
+                  // AWS: ['arn:aws:iam::${aws:accountId}:user/serverless', '${aws:accountId}'],
+                  // AWS: ['arn:aws:iam::${aws:accountId}:user/serverless', 'arn:aws:iam::${aws:accountId}:root'],
+                  AWS: '*',
+                },
+                Action: 'es:*',
+                Condition: {
+                  IpAddress: {
+                    'aws:SourceIp': ['160.152.113.3'],
+                  },
+                },
+                // Resource:
+                //   'arn:aws:es:${aws:region}:${aws:accountId}:domain/${self:resources.Resources.ImagesSearch.Properties.DomainName}/*',
+                Resource: '*',
+              },
+            ],
+          },
+        },
+      },
+      KMSKey: {
+        Type: 'AWS::KMS::Key',
+        Properties: {
+          Description: 'KMS key to encrypt Auth0 secret',
+          KeyPolicy: {
+            Version: '2012-10-17',
+            // Id: 'key-default-1',
+            Statement: [
+              {
+                $id: 'Allow administration of the key',
+                Effect: 'Allow',
+                Principal: {
+                  AWS: '*',
+                },
+                Action: ['kms:*'],
+                Resource: '*',
+              },
+            ],
+          },
+        },
+      },
+      KMSKeyAlias: {
+        Type: 'AWS::KMS::Alias',
+        Properties: {
+          AliasName: 'alias/auth0Key-${self:provider.stage}',
+          TargetKeyId: {
+            Ref: 'KMSKey',
+          },
+        },
+      },
+      Auth0Secret: {
+        Type: 'AWS::SecretsManager::Secret',
+        Properties: {
+          Name: '${self:provider.environment.AUTH_0_SECRET_ID}',
+          Description: 'Auth0 secret',
+          KmsKeyId: {
+            Ref: 'KMSKey',
           },
         },
       },

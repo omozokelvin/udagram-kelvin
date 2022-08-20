@@ -1,21 +1,20 @@
-
 import { handlerPath } from '@libs/handler-resolver';
 import createGroupSchema from './schema/create-group-schema';
 
-export const getGroups =  {
+export const getGroups = {
   handler: `${handlerPath(__dirname)}/getGroups.main`,
   events: [
     {
       http: {
         method: 'get',
         path: 'groups',
-        cors: true
+        cors: true,
       },
     },
   ],
 };
 
-export const createGroup =  {
+export const createGroup = {
   handler: `${handlerPath(__dirname)}/createGroup.main`,
   events: [
     {
@@ -23,6 +22,7 @@ export const createGroup =  {
         method: 'post',
         path: 'groups',
         cors: true,
+        authorizer: 'Auth',
         request: {
           schemas: {
             'application/json': createGroupSchema,
@@ -33,15 +33,14 @@ export const createGroup =  {
   ],
 };
 
-
-export const getImages =  {
+export const getImages = {
   handler: `${handlerPath(__dirname)}/getImages.main`,
   events: [
     {
       http: {
         method: 'get',
         path: 'groups/{groupId}/images',
-        cors: true
+        cors: true,
       },
     },
   ],
